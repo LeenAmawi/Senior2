@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "418341228853",
+    "project_id": "kidsentinel-dd697",
+    "storage_bucket": "kidsentinel-dd697.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:418341228853:android:e8564d1fb381e62d943c7c",
+        "android_client_info": {
+          "package_name": "com.example.senior2"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBIQoAf_iWLWGwlKQMfOOHsqPorQPdJl4I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
