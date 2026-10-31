@@ -2,6 +2,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../widgets/auth_widgets.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../ParentScreens/ParentDashboard.dart';
 import 'SignUp.dart';
 
 class Login extends StatefulWidget {
@@ -25,55 +27,107 @@ class _LoginPageState extends State<Login> {
     super.dispose();
   }
 
+
   Future<void> _login() async {
     FocusScope.of(context).unfocus();
 
-    if (!_formKey.currentState!.validate()) return;//show validation text under the fields only
+    if (!_formKey.currentState!.validate()) return;
+
     setState(() => _isLoading = true);
 
     try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
+      // تسجيل الدخول باستخدام Firebase Authentication
+      final credential = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(
         email: _email.text.trim(),
         password: _password.text,
       );
 
+      final user = credential.user;
+
+      if (user == null) {
+        throw Exception('User not found');
+      }
+
+      // التحقق أن الحساب موجود في مجموعة parents
+      final parentDoc = await FirebaseFirestore.instance
+          .collection('parents')
+          .doc(user.uid)
+          .get();
+
+      if (!parentDoc.exists) {
+        await FirebaseAuth.instance.signOut();
+
+        if (!mounted) return;
+
+        showAuthError(
+          context,
+          'This account is not registered as a Parent.',
+        );
+        return;
+      }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Login successful!')),
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const ParentDashboard(),
+        ),
       );
 
-
-    } on FirebaseAuthException catch (e) {//add navigation to your home page here
+    } on FirebaseAuthException catch (e) {
       if (!mounted) return;
+
       String message;
 
       switch (e.code) {
-        case 'user-not-found':message = 'No user found for that email';
+        case 'user-not-found':
+          message = 'No user found for that email';
           break;
-        case 'wrong-password':message = 'Wrong password provided for that user';
+        case 'wrong-password':
+          message = 'Wrong password provided for that user';
           break;
-        case 'invalid-credential':message = 'Incorrect email or password.';
+        case 'invalid-credential':
+          message = 'Incorrect email or password.';
           break;
-        case 'invalid-email':message = 'Please enter a valid email';
+        case 'invalid-email':
+          message = 'Please enter a valid email';
           break;
-        case 'too-many-requests':message = 'Too many attempts. Please try again later.';
+        case 'too-many-requests':
+          message = 'Too many attempts. Please try again later.';
           break;
-        case 'network-request-failed':message = 'Network error. Please check your connection.';
+        case 'network-request-failed':
+          message = 'Network error. Please check your connection.';
           break;
-        default:message = e.message ?? 'Could not log in. Please try again.';
+        default:
+          message = e.message ?? 'Could not log in. Please try again.';
       }
 
       showAuthError(context, message);
-    } catch (_) {
+
+    } on FirebaseException catch (e) {
       if (!mounted) return;
 
-      showAuthError(context, 'Something went wrong. Please try again.',);
+      showAuthError(
+        context,
+        'Could not verify Parent account: ${e.message}',
+      );
+
+    } catch (e) {
+      if (!mounted) return;
+
+      showAuthError(
+        context,
+        'Something went wrong. Please try again.',
+      );
+
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
       }
     }
   }
+
 
   Future<void> _forgotPassword() async {
     final emailController = TextEditingController(text: _email.text.trim(),);

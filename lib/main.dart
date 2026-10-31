@@ -1,6 +1,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'Auth/Login.dart';
 import 'firebase_options.dart';
 import 'Starting/Start1.dart';
 
@@ -14,12 +15,16 @@ Future<void> main() async {
 class KidsentialApp extends StatelessWidget {
   const KidsentialApp({super.key});
 
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Kidsential Kindergarten',
-      home: const Start1(),
+      home: Start1(),
+      routes: {
+        '/login': (context) => Login(),
+      },
     );
   }
 }
