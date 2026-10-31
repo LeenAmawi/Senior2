@@ -5,7 +5,7 @@ import 'package:senior2/StatusIcon/StatusIcons.dart';
 
 import 'package:senior2/ParentScreens/SettingsPage.dart';
 import 'package:senior2/ParentScreens/ParentProfile.dart';
-import 'package:senior2/StatusIcon/SharedCamera/LiveCamera.dart';
+import 'package:senior2/SharedCamera/LiveCamera.dart';
 
 class ParentDashboard extends StatelessWidget {
   const ParentDashboard({super.key});

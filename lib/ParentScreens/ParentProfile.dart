@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'ParentDashboard.dart';
-import 'package:senior2/StatusIcon/SharedCamera/LiveCamera.dart';
+import 'package:senior2/SharedCamera/LiveCamera.dart';
 import 'SettingsPage.dart';
 
 class ParentProfile extends StatelessWidget {
