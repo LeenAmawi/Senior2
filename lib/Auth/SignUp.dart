@@ -65,10 +65,14 @@ class _SignupPageState extends State<Signup> {
       final db = FirebaseFirestore.instance;
       final codeId = _connectionCode.text.trim();
 
+      final firstName = _firstName.text.trim();
+      final lastName = _lastName.text.trim();
+      final email = _email.text.trim();
+
       // 1. Create Firebase Authentication account
       final credential =
       await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: _email.text.trim(),
+        email: email,
         password: password,
       );
 
@@ -81,59 +85,110 @@ class _SignupPageState extends State<Signup> {
       newUser = user;
 
       final uid = user.uid;
-      final firstName = _firstName.text.trim();
-      final lastName = _lastName.text.trim();
 
-      // 2. Read and validate connection code
-      final codeRef =
+      // 2. Check Parent connection code first
+      final parentCodeRef =
       db.collection('connectionCodes').doc(codeId);
 
-      final codeSnapshot = await codeRef.get();
+      DocumentSnapshot<Map<String, dynamic>>? parentCodeSnapshot;
 
-      if (!codeSnapshot.exists) {
-        throw Exception('Invalid connection code');
+      try {
+        parentCodeSnapshot = await parentCodeRef.get();
+      } on FirebaseException catch (e) {
+        // An invalid/used/expired parent code may be denied by Rules.
+        if (e.code != 'permission-denied') {
+          rethrow;
+        }
       }
 
-      final codeData = codeSnapshot.data()!;
+      // 3. If it is a valid Parent code
+      if (parentCodeSnapshot != null &&
+          parentCodeSnapshot.exists) {
+        final codeData = parentCodeSnapshot.data()!;
 
-      final childId = codeData['childId'] as String?;
-      final isUsed = codeData['isUsed'] as bool?;
-      final expiresAt = codeData['expiresAt'] as Timestamp?;
+        final childId = codeData['childId'] as String?;
+        final isUsed = codeData['isUsed'] as bool?;
+        final expiresAt = codeData['expiresAt'] as Timestamp?;
 
-      if (childId == null ||
-          isUsed != false ||
-          expiresAt == null ||
-          !expiresAt.toDate().isAfter(DateTime.now())) {
-        throw Exception('Invalid or expired connection code');
+        if (childId == null ||
+            childId.isEmpty ||
+            isUsed != false ||
+            expiresAt == null ||
+            !expiresAt.toDate().isAfter(DateTime.now())) {
+          throw Exception('Invalid or expired connection code');
+        }
+
+        final parentRef = db.collection('parents').doc(uid);
+        final childRef = db.collection('children').doc(childId);
+
+        // Link Parent, Child, and code atomically
+        final batch = db.batch();
+
+        batch.set(parentRef, {
+          'firstName': firstName,
+          'lastName': lastName,
+          'email': email,
+          'createdAt': FieldValue.serverTimestamp(),
+          'childIds': [childId],
+        });
+
+        batch.update(childRef, {
+          'parentIds': FieldValue.arrayUnion([uid]),
+        });
+
+        batch.update(parentCodeRef, {
+          'isUsed': true,
+          'usedBy': uid,
+        });
+
+        await batch.commit();
+
+        batchCommitted = true;
       }
 
-      // 3. Prepare Firestore references
-      final parentRef = db.collection('parents').doc(uid);
-      final childRef = db.collection('children').doc(childId);
+      // 4. Otherwise, check Admin invitation code
+      else {
+        final adminCodeRef =
+        db.collection('adminCodes').doc(codeId);
 
-      // 4. Link parent, child, and code atomically
-      final batch = db.batch();
+        final adminCodeSnapshot = await adminCodeRef.get();
 
-      batch.set(parentRef, {
-        'firstName': firstName,
-        'lastName': lastName,
-        'email': _email.text.trim(),
-        'createdAt': FieldValue.serverTimestamp(),
-        'childIds': [childId],
-      });
+        if (!adminCodeSnapshot.exists) {
+          throw Exception('Invalid invitation code');
+        }
 
-      batch.update(childRef, {
-        'parentIds': FieldValue.arrayUnion([uid]),
-      });
+        final codeData = adminCodeSnapshot.data()!;
 
-      batch.update(codeRef, {
-        'isUsed': true,
-        'usedBy': uid,
-      });
+        final isUsed = codeData['isUsed'] as bool?;
+        final expiresAt = codeData['expiresAt'] as Timestamp?;
 
-      await batch.commit();
+        if (isUsed != false ||
+            expiresAt == null ||
+            !expiresAt.toDate().isAfter(DateTime.now())) {
+          throw Exception('Invalid or expired admin code');
+        }
 
-      batchCommitted = true;
+        final adminRef = db.collection('admins').doc(uid);
+
+        final batch = db.batch();
+
+        batch.set(adminRef, {
+          'name': '$firstName $lastName',
+          'email': email,
+          'role': 'admin',
+          'createdAt': FieldValue.serverTimestamp(),
+          'inviteCodeId': codeId,
+        });
+
+        batch.update(adminCodeRef, {
+          'isUsed': true,
+          'usedBy': uid,
+        });
+
+        await batch.commit();
+
+        batchCommitted = true;
+      }
 
       // 5. Update profile and send verification email
       await user.updateDisplayName('$firstName $lastName');
@@ -147,8 +202,8 @@ class _SignupPageState extends State<Signup> {
           builder: (_) => const EmailVerification(),
         ),
       );
+
     } on FirebaseAuthException catch (e) {
-      // Delete the new account only if Firestore linking did not finish.
       if (newUser != null && !batchCommitted) {
         try {
           await newUser.delete();
@@ -179,9 +234,11 @@ class _SignupPageState extends State<Signup> {
       }
 
       showAuthError(context, message);
+
     } on FirebaseException catch (e) {
       debugPrint('FIRESTORE ERROR CODE: ${e.code}');
       debugPrint('FIRESTORE ERROR MESSAGE: ${e.message}');
+
       if (newUser != null && !batchCommitted) {
         try {
           await newUser.delete();
@@ -190,10 +247,16 @@ class _SignupPageState extends State<Signup> {
 
       if (!mounted) return;
 
-      if (e.code == 'permission-denied') {
+      if (batchCommitted) {
         showAuthError(
           context,
-          'Connection failed. Please check the connection code.',
+          'Account created, but email verification could not be sent.',
+        );
+      } else if (e.code == 'permission-denied' ||
+          e.code == 'not-found') {
+        showAuthError(
+          context,
+          'Invalid or expired invitation code.',
         );
       } else {
         showAuthError(
@@ -201,7 +264,10 @@ class _SignupPageState extends State<Signup> {
           'Could not complete registration. Please try again.',
         );
       }
+
     } catch (e) {
+      debugPrint('SIGNUP ERROR: $e');
+
       if (newUser != null && !batchCommitted) {
         try {
           await newUser.delete();
@@ -212,16 +278,19 @@ class _SignupPageState extends State<Signup> {
 
       final message = e.toString();
 
-      if (message.contains('Invalid connection code')) {
-        showAuthError(context, 'Invalid connection code');
-      } else if (message.contains('expired')) {
-        showAuthError(context, 'Connection code has expired');
+      if (message.contains('Invalid invitation code') ||
+          message.contains('Invalid or expired')) {
+        showAuthError(
+          context,
+          'Invalid or expired connection code.',
+        );
       } else {
         showAuthError(
           context,
           'Something went wrong. Please try again.',
         );
       }
+
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
