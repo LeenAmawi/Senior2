@@ -6,6 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 
 class Settings extends StatefulWidget {
@@ -24,9 +27,28 @@ class _SettingsState extends State<Settings> {
   final CollectionReference<Map<String, dynamic>> codesCollection =
   FirebaseFirestore.instance.collection('connectionCodes');
 
+  final FirebaseDatabase realtimeDatabase = FirebaseDatabase.instanceFor(
+    app: Firebase.app(),
+    databaseURL: 'https://kidsentinel-dd697-default-rtdb.firebaseio.com',
+  );
+
   final ImagePicker _imagePicker = ImagePicker();
 
   bool _isSaving = false;
+
+  // Initialize the child's live status in Realtime Database.
+  Future<void> _initializeChildStatus(String childId) async {
+    await realtimeDatabase.ref('childStatus/$childId').set({
+      'deviceOnline': false,
+      'status': 'Unknown',
+      'batteryLevel': 0,
+      'obstacleDetected': false,
+      'wheelLock': false,
+      'nfcConnected': false,
+      'cameraOnline': false,
+      'identified': false,
+    });
+  }
 
   String _generateCode() {
     const characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -73,10 +95,7 @@ class _SettingsState extends State<Settings> {
         maxWidth: 1000,
       );
 
-      if (image == null) {
-        debugPrint('No image selected');
-        return null;
-      }
+      if (image == null) return null;
 
       return File(image.path);
     } catch (e, stackTrace) {
@@ -120,14 +139,11 @@ class _SettingsState extends State<Settings> {
     DateTime? childBirthDate,
     String? childPhotoUrl,
   }) {
-    // No TextEditingController is used.
     String enteredChildName = childName ?? '';
-
     DateTime? selectedBirthDate = childBirthDate;
     File? selectedImage;
 
     bool saving = false;
-    bool dialogClosed = false;
 
     showDialog(
       context: context,
@@ -167,16 +183,12 @@ class _SettingsState extends State<Settings> {
                         ),
                       ),
                     ),
-
                     const SizedBox(height: 15),
-
                     const Text(
                       'Birth Date',
                       style: TextStyle(fontWeight: FontWeight.w500),
                     ),
-
                     const SizedBox(height: 7),
-
                     InkWell(
                       onTap: saving
                           ? null
@@ -243,16 +255,12 @@ class _SettingsState extends State<Settings> {
                         ),
                       ),
                     ),
-
                     const SizedBox(height: 15),
-
                     const Text(
                       'Child Photo',
                       style: TextStyle(fontWeight: FontWeight.w500),
                     ),
-
                     const SizedBox(height: 8),
-
                     Center(
                       child: Column(
                         children: [
@@ -275,9 +283,7 @@ class _SettingsState extends State<Settings> {
                             )
                                 : null,
                           ),
-
                           const SizedBox(height: 8),
-
                           TextButton.icon(
                             onPressed: saving
                                 ? null
@@ -310,16 +316,12 @@ class _SettingsState extends State<Settings> {
                 TextButton(
                   onPressed: saving
                       ? null
-                      : () {
-                    dialogClosed = true;
-                    Navigator.of(dialogContext).pop();
-                  },
+                      : () => Navigator.of(dialogContext).pop(),
                   child: const Text(
                     'Cancel',
                     style: TextStyle(color: Colors.grey),
                   ),
                 ),
-
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: purple,
@@ -367,8 +369,7 @@ class _SettingsState extends State<Settings> {
                       _calculateAge(selectedBirthDate!);
 
                       if (childId == null) {
-                        final childRef =
-                        childrenCollection.doc();
+                        final childRef = childrenCollection.doc();
 
                         final code = _generateCode();
                         final codeRef = codesCollection.doc(code);
@@ -396,12 +397,18 @@ class _SettingsState extends State<Settings> {
                           ),
                           'age': age,
                           'photoUrl': photoUrl,
-                          'status': 'Not Connected',
+                          'status': 'Unknown',
                           'cameraEnabled': false,
                           'cameraOnline': false,
+                          'liveStreamUrl': '',
                           'nfcConnected': false,
                           'nfcId': null,
-                          'liveStreamUrl': '',
+                          'deviceOnline': false,
+                          'batteryLevel': 0,
+                          'obstacleDetected': false,
+                          'lastEventType': '',
+                          'lastEventAt': null,
+                          'lastUpdated': null,
                           'connectionCodeId': code,
                           'parentIds': [],
                         });
@@ -417,6 +424,36 @@ class _SettingsState extends State<Settings> {
                         });
 
                         await batch.commit();
+
+                        try {
+                          await _initializeChildStatus(childRef.id);
+                        } catch (rtdbError) {
+                          debugPrint(
+                            'RTDB initialization error: $rtdbError',
+                          );
+
+                          try {
+                            await childRef.delete();
+                            await codeRef.delete();
+                          } catch (rollbackError) {
+                            debugPrint(
+                              'Firestore rollback error: $rollbackError',
+                            );
+                          }
+
+                          if (photoUrl.isNotEmpty) {
+                            try {
+                              await FirebaseStorage.instance
+                                  .ref()
+                                  .child('children')
+                                  .child(childRef.id)
+                                  .child('profile.jpg')
+                                  .delete();
+                            } catch (_) {}
+                          }
+
+                          rethrow;
+                        }
 
                         generatedCode = code;
                       } else {
@@ -443,8 +480,7 @@ class _SettingsState extends State<Settings> {
                             .update(updates);
                       }
 
-                      if (!mounted ||
-                          !dialogContext.mounted) {
+                      if (!mounted || !dialogContext.mounted) {
                         return;
                       }
 
@@ -452,17 +488,13 @@ class _SettingsState extends State<Settings> {
                         _isSaving = false;
                       });
 
-                      dialogClosed = true;
-
                       Navigator.of(dialogContext).pop();
 
                       if (generatedCode != null) {
-                        final code = generatedCode!;
-
                         WidgetsBinding.instance
                             .addPostFrameCallback((_) {
                           if (mounted) {
-                            _showCodeDialog(code);
+                            _showCodeDialog(generatedCode!);
                           }
                         });
                       } else {
@@ -506,8 +538,7 @@ class _SettingsState extends State<Settings> {
                         });
                       }
 
-                      if (!dialogClosed &&
-                          dialogContext.mounted) {
+                      if (dialogContext.mounted) {
                         setDialogState(() {
                           saving = false;
                         });
@@ -557,9 +588,7 @@ class _SettingsState extends State<Settings> {
                 'Give this connection code to the parent:',
                 textAlign: TextAlign.center,
               ),
-
               const SizedBox(height: 18),
-
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
@@ -578,9 +607,7 @@ class _SettingsState extends State<Settings> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 12),
-
               const Text(
                 'This code is valid for 10 years and can be used once.',
                 textAlign: TextAlign.center,
@@ -615,7 +642,6 @@ class _SettingsState extends State<Settings> {
                     style: TextStyle(color: purple),
                   ),
                 ),
-
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: purple,
@@ -692,6 +718,10 @@ class _SettingsState extends State<Settings> {
 
       await batch.commit();
 
+      await realtimeDatabase
+          .ref('childStatus/$childId')
+          .remove();
+
       try {
         await FirebaseStorage.instance
             .ref()
@@ -699,9 +729,7 @@ class _SettingsState extends State<Settings> {
             .child(childId)
             .child('profile.jpg')
             .delete();
-      } catch (_) {
-        // No uploaded photo, or photo already deleted.
-      }
+      } catch (_) {}
 
       if (!mounted) return;
 
@@ -736,6 +764,27 @@ class _SettingsState extends State<Settings> {
       applicationVersion: '1.0.0',
       applicationLegalese: 'Smart Child Monitoring System',
     );
+  }
+
+  // Log out the administrator.
+  Future<void> _logout() async {
+    try {
+      await FirebaseAuth.instance.signOut();
+
+      if (!mounted) return;
+
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/login',
+            (route) => false,
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not log out: $e')),
+      );
+    }
   }
 
   @override
@@ -823,9 +872,7 @@ class _SettingsState extends State<Settings> {
                   return Container(
                     height: 50,
                     margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 9,
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 9),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
@@ -939,6 +986,28 @@ class _SettingsState extends State<Settings> {
                     color: Colors.grey,
                   ),
                 ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 30),
+
+          // Log out button
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton(
+              onPressed: _isSaving ? null : _logout,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: purple,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text(
+                'Log out',
+                style: TextStyle(fontSize: 15),
               ),
             ),
           ),

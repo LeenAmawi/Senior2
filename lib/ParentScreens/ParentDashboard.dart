@@ -1,8 +1,11 @@
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:senior2/StatusIcon/StatusIcons.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
 
+import 'package:senior2/StatusIcon/StatusIcons.dart';
 import 'package:senior2/ParentScreens/SettingsPage.dart';
 import 'package:senior2/ParentScreens/ParentProfile.dart';
 import 'package:senior2/SharedCamera/LiveCamera.dart';
@@ -15,15 +18,57 @@ class ParentDashboard extends StatelessWidget {
   static const Color background = Color(0xFFF3F2F8);
   static const Color darkText = Color(0xFF292929);
 
+  static final FirebaseDatabase realtimeDatabase =
+  FirebaseDatabase.instanceFor(
+    app: Firebase.app(),
+    databaseURL:
+    'https://kidsentinel-dd697-default-rtdb.firebaseio.com',
+  );
+
+  String calculateAge(Timestamp birthTimestamp) {
+    final birthDate = birthTimestamp.toDate();
+    final today = DateTime.now();
+
+    int months = (today.year - birthDate.year) * 12 +
+        today.month -
+        birthDate.month;
+
+    if (today.day < birthDate.day) {
+      months--;
+    }
+
+    if (months < 0) {
+      return 'Not available';
+    }
+
+    if (months < 12) {
+      return '$months months';
+    }
+
+    final years = months ~/ 12;
+    final remainingMonths = months % 12;
+
+    if (remainingMonths == 0) {
+      return '$years years';
+    }
+
+    return '$years years, $remainingMonths months';
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
 
     if (user == null) {
       return const Scaffold(
-        body: Center(child: Text('Please log in again.')),
+        body: Center(
+          child: Text('Please log in again.'),
+        ),
       );
     }
+
+    debugPrint('========== PARENT DASHBOARD ==========');
+    debugPrint('PARENT UID: ${user.uid}');
 
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance
@@ -31,15 +76,22 @@ class ParentDashboard extends StatelessWidget {
           .doc(user.uid)
           .snapshots(),
       builder: (context, parentSnapshot) {
-        if (parentSnapshot.connectionState == ConnectionState.waiting) {
+        if (parentSnapshot.connectionState ==
+            ConnectionState.waiting) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+            body: Center(
+              child: CircularProgressIndicator(),
+            ),
           );
         }
 
         if (parentSnapshot.hasError ||
             !parentSnapshot.hasData ||
             !parentSnapshot.data!.exists) {
+          debugPrint(
+            'PARENT FIRESTORE ERROR: ${parentSnapshot.error}',
+          );
+
           return const Scaffold(
             body: Center(
               child: Text('Could not load parent information.'),
@@ -66,6 +118,8 @@ class ParentDashboard extends StatelessWidget {
 
         final childId = childIds.first;
 
+        debugPrint('CHILD ID: $childId');
+
         return StreamBuilder<DocumentSnapshot>(
           stream: FirebaseFirestore.instance
               .collection('children')
@@ -75,13 +129,19 @@ class ParentDashboard extends StatelessWidget {
             if (childSnapshot.connectionState ==
                 ConnectionState.waiting) {
               return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
+                body: Center(
+                  child: CircularProgressIndicator(),
+                ),
               );
             }
 
             if (childSnapshot.hasError ||
                 !childSnapshot.hasData ||
                 !childSnapshot.data!.exists) {
+              debugPrint(
+                'CHILD FIRESTORE ERROR: ${childSnapshot.error}',
+              );
+
               return const Scaffold(
                 body: Center(
                   child: Text('Could not load child information.'),
@@ -93,23 +153,76 @@ class ParentDashboard extends StatelessWidget {
             childSnapshot.data!.data() as Map<String, dynamic>;
 
             final childName = childData['name'] ?? 'Child';
-            final age = childData['age'] ?? '';
-            final status = childData['status'] ?? 'Unknown';
 
-            // Image path stored in Firestore
+            final birthDateValue = childData['birthDate'];
+
+            final Timestamp? birthTimestamp =
+            birthDateValue is Timestamp
+                ? birthDateValue
+                : null;
+
+            final age = birthTimestamp != null
+                ? calculateAge(birthTimestamp)
+                : 'Not available';
+
             final photoUrl = childData['photoUrl'] ?? '';
 
-            final nfcConnected =
-                childData['nfcConnected'] == true;
+            return StreamBuilder<DatabaseEvent>(
+              stream: realtimeDatabase
+                  .ref('childStatus/$childId')
+                  .onValue,
+              builder: (context, statusSnapshot) {
+                if (statusSnapshot.connectionState ==
+                    ConnectionState.waiting) {
+                  return const Scaffold(
+                    body: Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  );
+                }
 
-            return _buildDashboard(
-              context: context,
-              firstName: firstName.toString(),
-              childName: childName.toString(),
-              age: age.toString(),
-              status: status.toString(),
-              photoUrl: photoUrl.toString(),
-              nfcConnected: nfcConnected,
+                if (statusSnapshot.hasError) {
+                  debugPrint(
+                    'RTDB ERROR: ${statusSnapshot.error}',
+                  );
+                }
+
+                final rawData =
+                    statusSnapshot.data?.snapshot.value;
+
+                debugPrint('RTDB PATH: childStatus/$childId');
+                debugPrint('RTDB RAW DATA: $rawData');
+                debugPrint('RTDB DATA TYPE: ${rawData.runtimeType}');
+
+                final Map<String, dynamic> liveData =
+                rawData is Map
+                    ? Map<String, dynamic>.from(rawData)
+                    : {};
+
+                // Check NFC connection first
+                final nfcConnected =
+                    liveData['nfcConnected'] == true;
+
+                // Show child status only when NFC is connected
+                final status = nfcConnected
+                    ? (liveData['status']?.toString() ?? 'Unknown')
+                    : 'Unknown';
+
+                debugPrint('CHILD STATUS: $status');
+                debugPrint('NFC CONNECTED: $nfcConnected');
+                debugPrint('======================================');
+
+                return _buildDashboard(
+                  context: context,
+                  firstName: firstName.toString(),
+                  childName: childName.toString(),
+                  age: age,
+                  status: status,
+                  photoUrl: photoUrl.toString(),
+                  nfcConnected: nfcConnected,
+                  childId: childId,
+                );
+              },
             );
           },
         );
@@ -125,6 +238,7 @@ class ParentDashboard extends StatelessWidget {
     required String status,
     required String photoUrl,
     required bool nfcConnected,
+    required String childId,
   }) {
     final isSleeping = status.toLowerCase().contains('sleep');
 
@@ -193,7 +307,8 @@ class ParentDashboard extends StatelessWidget {
                         width: 85,
                         height: 85,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
+                        errorBuilder:
+                            (context, error, stackTrace) {
                           debugPrint('IMAGE ERROR: $error');
 
                           return const Center(
@@ -375,7 +490,9 @@ class ParentDashboard extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => const LiveCamera(),
+                      builder: (_) => LiveCamera(
+                        childId: childId,
+                      ),
                     ),
                   );
                 },

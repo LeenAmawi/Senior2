@@ -101,9 +101,7 @@ class _LoginPageState extends State<Login> {
             builder: (_) => const ParentDashboard(),
           ),
         );
-      }
-
-      else if (_selectedRole == 'Admin') {
+      } else if (_selectedRole == 'Admin') {
         final adminDoc = await db
             .collection('admins')
             .doc(user.uid)
@@ -130,7 +128,6 @@ class _LoginPageState extends State<Login> {
           ),
         );
       }
-
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
 
@@ -298,9 +295,7 @@ class _LoginPageState extends State<Login> {
                 : const Color(0xFFF2F2F2),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: isSelected
-                  ? purple
-                  : Colors.transparent,
+              color: isSelected ? purple : Colors.transparent,
               width: 1.8,
             ),
             boxShadow: [
@@ -317,19 +312,13 @@ class _LoginPageState extends State<Login> {
               Icon(
                 icon,
                 size: 27,
-                color: isSelected
-                    ? purple
-                    : Colors.grey,
+                color: isSelected ? purple : Colors.grey,
               ),
-
               const SizedBox(height: 8),
-
               Text(
                 title,
                 style: TextStyle(
-                  color: isSelected
-                      ? purple
-                      : Colors.grey,
+                  color: isSelected ? purple : Colors.grey,
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                 ),
@@ -346,7 +335,7 @@ class _LoginPageState extends State<Login> {
     return AuthContainer(
       header: const AuthHeader(
         title: 'Login',
-        subtitle: '',
+        subtitle: 'Hi there, welcome back, please login to your account',
         imagePath: 'assets/images/auth.png',
       ),
       child: Form(
@@ -434,7 +423,6 @@ class _LoginPageState extends State<Login> {
                   title: 'Parent',
                   icon: Icons.person_outline,
                 ),
-
                 _roleButton(
                   title: 'Admin',
                   icon: Icons.person_outline,
@@ -447,7 +435,14 @@ class _LoginPageState extends State<Login> {
             Wrap(
               alignment: WrapAlignment.center,
               children: [
-                const Text("Don't have an account? "),
+                const Text(
+                  "Don't have an account? ",
+                  style: TextStyle(
+                    color: Colors.blue,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
 
                 GestureDetector(
                   onTap: () {
@@ -462,6 +457,7 @@ class _LoginPageState extends State<Login> {
                     'Sign up',
                     style: TextStyle(
                       color: purple,
+                      fontSize: 12,
                       fontWeight: FontWeight.bold,
                     ),
                   ),

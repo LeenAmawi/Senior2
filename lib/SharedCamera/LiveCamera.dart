@@ -1,155 +1,166 @@
-import 'package:flutter/material.dart';
 
-import 'package:senior2/ParentScreens/ParentDashboard.dart';
-import 'package:senior2/ParentScreens/ParentProfile.dart';
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class LiveCamera extends StatelessWidget {
-  const LiveCamera({super.key});
+  final String childId;
+  final String kindergartenId;
 
-  static const Color purple = Color(0xFFAA6BD5);
-  static const Color background = Color(0xFFF1F0F6);
+  const LiveCamera({
+    super.key,
+    required this.childId,
+    this.kindergartenId = '8Q7bnU6zLpENqM4XseTO',
+  });
 
   @override
   Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    debugPrint('========== LIVE CAMERA ==========');
+    debugPrint('AUTH UID: $uid');
+    debugPrint('CHILD ID: $childId');
+    debugPrint('=================================');
+
+    // Correct Firestore path:
+    // children/{childId}
+    final firestoreStream = FirebaseFirestore.instance
+        .collection('children')
+        .doc(childId)
+        .snapshots();
+
+    // Realtime Database path remains unchanged.
+    final rtdbStream = FirebaseDatabase.instance
+        .ref('childStatus/$childId')
+        .onValue;
+
     return Scaffold(
-      backgroundColor: background,
       appBar: AppBar(
-        backgroundColor: purple,
-        foregroundColor: Colors.white,
-        centerTitle: true,
-        title: const Text(
-          'Live camera',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
+        title: const Text('Live Camera'),
       ),
-      body: Center(
-        child: Container(
-          margin: const EdgeInsets.all(20),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: const Color(0xFF292929),
-            borderRadius: BorderRadius.circular(22),
-          ),
-          child: AspectRatio(
-            aspectRatio: 4 / 3,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-                color: Colors.black,
-                child: const Center(
+      body: StreamBuilder<DatabaseEvent>(
+        stream: rtdbStream,
+        builder: (context, rtdbSnapshot) {
+          if (rtdbSnapshot.hasError) {
+            debugPrint('RTDB ERROR: ${rtdbSnapshot.error}');
+
+            return const Center(
+              child: Text('Error loading camera status'),
+            );
+          }
+
+          final rawData = rtdbSnapshot.data?.snapshot.value;
+
+          final Map<dynamic, dynamic> statusData =
+          rawData is Map ? rawData : {};
+
+          final bool cameraOnline =
+              statusData['cameraOnline'] == true;
+
+          return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            stream: firestoreStream,
+            builder: (context, firestoreSnapshot) {
+              if (firestoreSnapshot.hasError) {
+                debugPrint(
+                  'FIRESTORE ERROR: ${firestoreSnapshot.error}',
+                );
+
+                return const Center(
+                  child: Text('Unable to load child information'),
+                );
+              }
+
+              if (firestoreSnapshot.connectionState ==
+                  ConnectionState.waiting) {
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
+              }
+
+              if (!firestoreSnapshot.hasData ||
+                  !firestoreSnapshot.data!.exists) {
+                debugPrint('CHILD DOCUMENT NOT FOUND');
+
+                return const Center(
+                  child: Text('Child information not found'),
+                );
+              }
+
+              final childData =
+                  firestoreSnapshot.data!.data() ?? {};
+
+              debugPrint('FIRESTORE PATH: ${firestoreSnapshot.data!.reference.path}');
+              debugPrint('CHILD DATA: $childData');
+
+              final String liveStreamUrl =
+                  childData['liveStreamUrl']?.toString() ?? '';
+
+              final bool cameraEnabled =
+                  childData['cameraEnabled'] == true;
+
+              if (!cameraEnabled) {
+                return const Center(
+                  child: Text(
+                    'Camera is disabled',
+                    style: TextStyle(fontSize: 18),
+                  ),
+                );
+              }
+
+              if (!cameraOnline) {
+                return const Center(
+                  child: Text(
+                    'Camera is offline',
+                    style: TextStyle(fontSize: 18),
+                  ),
+                );
+              }
+
+              if (liveStreamUrl.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'Camera is online, but no stream URL is available',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 16),
+                  ),
+                );
+              }
+
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
                   child: Column(
-                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(
-                        Icons.videocam_off,
-                        color: Colors.white,
-                        size: 55,
+                      const Icon(
+                        Icons.videocam,
+                        size: 70,
+                        color: Colors.green,
                       ),
-                      SizedBox(height: 12),
-                      Text(
-                        'Camera stream is not connected',
-                        style: TextStyle(color: Colors.white),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Camera is online',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text('Stream URL:'),
+                      SelectableText(liveStreamUrl),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Video playback is not configured yet.',
+                        textAlign: TextAlign.center,
                       ),
                     ],
                   ),
                 ),
-              ),
-            ),
-          ),
-        ),
-      ),
-
-      // Bottom Navigation Bar
-      bottomNavigationBar: Container(
-        height: 65,
-        color: Colors.white,
-        child: Row(
-          children: [
-            Expanded(
-              child: _navItem(
-                icon: Icons.home_outlined,
-                label: 'Home',
-                selected: false,
-                onTap: () {
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ParentDashboard(),
-                    ),
-                  );
-                },
-              ),
-            ),
-
-            Expanded(
-              child: _navItem(
-                icon: Icons.videocam_outlined,
-                label: 'Camera',
-                selected: true,
-                onTap: () {},
-              ),
-            ),
-
-            Expanded(
-              child: _navItem(
-                icon: Icons.person_outline,
-                label: 'Profile',
-                selected: false,
-                onTap: () {
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ParentProfile(),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // Navigation Item
-  Widget _navItem({
-    required IconData icon,
-    required String label,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.only(top: 2),
-        decoration: BoxDecoration(
-          color: selected
-              ? const Color(0xFFF0E2FA)
-              : Colors.transparent,
-          borderRadius: const BorderRadius.only(
-            topRight: Radius.circular(15),
-            bottomRight: Radius.circular(15),
-          ),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              size: 24,
-              color: const Color(0xFF9B55D5),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 11,
-                color: Color(0xFF9B55D5),
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
+              );
+            },
+          );
+        },
       ),
     );
   }

@@ -44,27 +44,43 @@ void showAuthError(BuildContext context, String message) {
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-        Container(
-          width: 54,
-          height: 54,
-          decoration: const BoxDecoration(
-          color: Colors.red,
-          shape: BoxShape.circle,),
-          child: const Icon(
-          Icons.close,
-          color: Colors.white,
-          size: 36,
-          ),),
-          const SizedBox(height: 12),
-            const Text('ERROR', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold,),),
-            const SizedBox(height: 8),
-            Text(message, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12),),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 54,
+              height: 54,
+              decoration: const BoxDecoration(
+                color: Colors.red,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.close,
+                color: Colors.white,
+                size: 36,
+              ),
+            ),
             const SizedBox(height: 12),
-            TextButton(onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('OK', style: TextStyle(color: purple),
-              ),),
+            const Text(
+              'ERROR',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text(
+                'OK',
+                style: TextStyle(color: purple),
+              ),
+            ),
           ],
         ),
       ),
@@ -108,7 +124,9 @@ class _AuthFieldState extends State<AuthField> {
       keyboardType: widget.keyboardType,
       obscureText: widget.obscureText,
       validator: (value) => widget.validator?.call(value),
-      autovalidateMode: _hasTyped ? AutovalidateMode.onUserInteraction : AutovalidateMode.disabled,
+      autovalidateMode: _hasTyped
+          ? AutovalidateMode.onUserInteraction
+          : AutovalidateMode.disabled,
       onChanged: (value) {
         if (!_hasTyped) {
           setState(() {
@@ -180,15 +198,22 @@ class AuthButton extends StatelessWidget {
       child: ElevatedButton(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
-        backgroundColor: purple,
-        foregroundColor: Colors.white,
-        elevation: 2,
-        shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(30),
+          backgroundColor: purple,
+          foregroundColor: Colors.white,
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(30),
           ),
         ),
-        child: Text(text, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600,
-          ),),),);
+        child: Text(
+          text,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -206,21 +231,68 @@ class AuthHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-  return SizedBox(width: 200, height: 180,
-    child: Stack(
-      children: [Positioned.fill(
-       child: Image.asset(imagePath, fit: BoxFit.contain,
-       errorBuilder: (context, error, stackTrace) {
-        return const Icon(Icons.image_not_supported_outlined, size: 60, color: Colors.grey,);
-              },
-            ),),
-        Positioned(
-        top: 30,
-        left: 15,
-        right: 15,
-        child: Text(title, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF9252B5), fontSize: 23, fontWeight: FontWeight.bold,),),),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 200,
+          height: 180,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Image.asset(
+                  imagePath,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) {
+                    return const Icon(
+                      Icons.image_not_supported_outlined,
+                      size: 60,
+                      color: Colors.grey,
+                    );
+                  },
+                ),
+              ),
+              Positioned(
+                top: 30,
+                left: 15,
+                right: 15,
+                child: Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Color(0xFF9252B5),
+                    fontSize: 23,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        if (subtitle.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.grey.shade700,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                shadows: [
+                  Shadow(
+                    color: Colors.black.withOpacity(0.18),
+                    blurRadius: 3,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
-      ),
+      ],
     );
   }
 }
@@ -228,6 +300,7 @@ class AuthHeader extends StatelessWidget {
 class AuthContainer extends StatelessWidget {
   final Widget child;
   final Widget? header;
+
   const AuthContainer({
     super.key,
     required this.child,
@@ -237,21 +310,30 @@ class AuthContainer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-    backgroundColor: Colors.white,
-     body: SafeArea(
-     child: Center(
-     child: SingleChildScrollView(
-     padding: const EdgeInsets.symmetric(
-       horizontal: 24,
-       vertical: 20,),
-       child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 360,),
-       child: Column(mainAxisSize: MainAxisSize.min,
-       children: [
-        if (header != null) header!,
-        const SizedBox(height: 12),
-        Container(width: double.infinity, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 22,),
-        color: Colors.white,
-         child: child,),
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 20,
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 360),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (header != null) header!,
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 22,
+                    ),
+                    color: Colors.white,
+                    child: child,
+                  ),
                 ],
               ),
             ),

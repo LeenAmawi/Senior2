@@ -95,7 +95,6 @@ class _SignupPageState extends State<Signup> {
       try {
         parentCodeSnapshot = await parentCodeRef.get();
       } on FirebaseException catch (e) {
-        // An invalid/used/expired parent code may be denied by Rules.
         if (e.code != 'permission-denied') {
           rethrow;
         }
@@ -303,7 +302,7 @@ class _SignupPageState extends State<Signup> {
     return AuthContainer(
       header: const AuthHeader(
         title: 'Sign up',
-        subtitle: '',
+        subtitle: 'Enter your details to create an account',
         imagePath: 'assets/images/auth.png',
       ),
       child: Form(
@@ -339,7 +338,7 @@ class _SignupPageState extends State<Signup> {
             const SizedBox(height: 12),
 
             AuthField(
-              hint: 'Child Connection Code',
+              hint: 'Connection Code',
               icon: Icons.vpn_key_outlined,
               controller: _connectionCode,
               validator: (value) {
@@ -419,7 +418,14 @@ class _SignupPageState extends State<Signup> {
             Wrap(
               alignment: WrapAlignment.center,
               children: [
-                const Text('Already have an account? '),
+                const Text(
+                  'Already have an account? ',
+                  style: TextStyle(
+                    color: Colors.blue,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
                 GestureDetector(
                   onTap: () {
                     Navigator.pushReplacement(
@@ -433,6 +439,7 @@ class _SignupPageState extends State<Signup> {
                     'Log in',
                     style: TextStyle(
                       color: purple,
+                      fontSize: 12,
                       fontWeight: FontWeight.bold,
                     ),
                   ),

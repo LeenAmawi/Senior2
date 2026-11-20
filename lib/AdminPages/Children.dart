@@ -1,8 +1,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 
 import 'ChildDetails.dart';
+import 'package:senior2/firebase_database_service.dart';
 
 class Children extends StatelessWidget {
   const Children({super.key});
@@ -76,8 +78,8 @@ class Children extends StatelessWidget {
 
               final name = child['name']?.toString() ?? 'Unknown';
               final image = child['photoUrl']?.toString() ?? '';
-              final status = child['status']?.toString() ?? 'Unknown';
-              final nfcId = child['nfcId']?.toString() ?? 'Not connected';
+              final firestoreStatus =
+                  child['status']?.toString() ?? 'Unknown';
 
               return GestureDetector(
                 onTap: () {
@@ -85,22 +87,51 @@ class Children extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (_) => ChildDetails(
-                        name: name,
-                        image: image,
-                        status: status,
-                        nfcId: nfcId,
+                        childId: doc.id,
                       ),
                     ),
                   );
                 },
-                child: _buildChildCard(
+                child: _buildLiveChildCard(
+                  childId: doc.id,
                   name: name,
                   image: image,
-                  status: status,
+                  firestoreStatus: firestoreStatus,
                 ),
               );
             },
           ),
+        );
+      },
+    );
+  }
+
+  // Read the child's live status from Realtime Database.
+  Widget _buildLiveChildCard({
+    required String childId,
+    required String name,
+    required String image,
+    required String firestoreStatus,
+  }) {
+    return StreamBuilder<DatabaseEvent>(
+      stream: FirebaseDatabaseService.database
+          .ref('childStatus/$childId')
+          .onValue,
+      builder: (context, snapshot) {
+        String status = firestoreStatus;
+
+        if (snapshot.hasData) {
+          final value = snapshot.data!.snapshot.value;
+
+          if (value is Map) {
+            status = value['status']?.toString() ?? 'Unknown';
+          }
+        }
+
+        return _buildChildCard(
+          name: name,
+          image: image,
+          status: status,
         );
       },
     );
@@ -111,7 +142,13 @@ class Children extends StatelessWidget {
     required String image,
     required String status,
   }) {
-    final isAsleep = status.toLowerCase() == 'asleep';
+    final lowerStatus = status.toLowerCase();
+
+    final Color statusColor = lowerStatus == 'awake'
+        ? Colors.green
+        : lowerStatus == 'sleeping' || lowerStatus == 'asleep'
+        ? Colors.yellow.shade700
+        : Colors.grey;
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -174,9 +211,7 @@ class Children extends StatelessWidget {
             Icon(
               Icons.circle,
               size: 11,
-              color: isAsleep
-                  ? Colors.yellow.shade700
-                  : Colors.green,
+              color: statusColor,
             ),
             const SizedBox(width: 5),
             Text(

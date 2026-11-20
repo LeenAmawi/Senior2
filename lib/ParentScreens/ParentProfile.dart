@@ -13,8 +13,9 @@ class ParentProfile extends StatelessWidget {
   static const Color purple = Color(0xFFAA6BD5);
   static const Color background = Color(0xFFF1F0F6);
 
-  // Calculate age from birth date
-  String calculateAge(DateTime birthDate) {
+  // Calculate age from birth date Timestamp
+  String calculateAge(Timestamp birthTimestamp) {
+    final birthDate = birthTimestamp.toDate();
     final today = DateTime.now();
 
     int months =
@@ -137,20 +138,20 @@ class ParentProfile extends StatelessWidget {
               final name =
                   childData['name']?.toString() ?? 'Child';
 
-              // Get birthDate from Firebase
+              // Get birthDate from Firebase Timestamp
               final birthDateValue = childData['birthDate'];
 
-              DateTime? birthDate;
+              final Timestamp? birthTimestamp =
+              birthDateValue is Timestamp
+                  ? birthDateValue
+                  : null;
 
-              if (birthDateValue is Timestamp) {
-                birthDate = birthDateValue.toDate();
-              } else if (birthDateValue is String) {
-                birthDate = DateTime.tryParse(birthDateValue);
-              }
+              final DateTime? birthDate =
+              birthTimestamp?.toDate();
 
               // Calculate age automatically
-              final ageText = birthDate != null
-                  ? calculateAge(birthDate)
+              final ageText = birthTimestamp != null
+                  ? calculateAge(birthTimestamp)
                   : 'Not available';
 
               final birthDateText = birthDate != null
@@ -169,7 +170,7 @@ class ParentProfile extends StatelessWidget {
                 children: [
                   const SizedBox(height: 20),
 
-                  // Child image from Firebase asset path
+                  // Child image from Firebase
                   CircleAvatar(
                     radius: 62,
                     backgroundColor: const Color(0xFF8961A9),
@@ -315,13 +316,54 @@ class ParentProfile extends StatelessWidget {
                 icon: Icons.videocam_outlined,
                 label: 'Camera',
                 selected: false,
-                onTap: () {
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const LiveCamera(),
-                    ),
-                  );
+                onTap: () async {
+                  final currentUser =
+                      FirebaseAuth.instance.currentUser;
+
+                  if (currentUser == null) return;
+
+                  try {
+                    final parentDoc = await FirebaseFirestore.instance
+                        .collection('parents')
+                        .doc(currentUser.uid)
+                        .get();
+
+                    final childIds = List<String>.from(
+                      parentDoc.data()?['childIds'] ?? [],
+                    );
+
+                    if (childIds.isEmpty) {
+                      if (!context.mounted) return;
+
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'No child linked to this account',
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+
+                    if (!context.mounted) return;
+
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => LiveCamera(
+                          childId: childIds.first,
+                        ),
+                      ),
+                    );
+                  } catch (e) {
+                    if (!context.mounted) return;
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Could not open camera: $e'),
+                      ),
+                    );
+                  }
                 },
               ),
             ),

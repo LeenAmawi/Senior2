@@ -1,32 +1,24 @@
 
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 
 import 'AdminHome.dart';
+import 'package:senior2/SharedCamera/LiveCamera.dart';
+import 'package:senior2/firebase_database_service.dart';
 
 class ChildDetails extends StatelessWidget {
-  final String name;
-  final String image;
-  final String status;
-  final String nfcId;
-  final String presence;
-  final String identification;
-  final String wheelLock;
+  final String childId;
 
   const ChildDetails({
     super.key,
-    required this.name,
-    required this.image,
-    required this.status,
-    required this.nfcId,
-    this.presence = 'Unknown',
-    this.identification = 'Unknown',
-    this.wheelLock = 'Unknown',
+    required this.childId,
   });
 
   static const Color purple = Color(0xFFAA6BD5);
   static const Color background = Color(0xFFF3F2F8);
 
-  Widget _buildChildImage() {
+  Widget _buildChildImage(String image) {
     if (image.isEmpty) {
       return const Icon(
         Icons.child_care,
@@ -66,100 +58,265 @@ class ChildDetails extends StatelessWidget {
     );
   }
 
+  String _getText(dynamic value, {String fallback = 'Unknown'}) {
+    if (value == null || value.toString().trim().isEmpty) {
+      return fallback;
+    }
+    return value.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: background,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(context),
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('children')
+          .doc(childId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Scaffold(
+            backgroundColor: background,
+            body: Center(
+              child: Text('Error loading child data: ${snapshot.error}'),
+            ),
+          );
+        }
 
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 24,
+        if (!snapshot.hasData) {
+          return const Scaffold(
+            backgroundColor: background,
+            body: Center(
+              child: CircularProgressIndicator(color: purple),
+            ),
+          );
+        }
+
+        if (!snapshot.data!.exists) {
+          return const Scaffold(
+            backgroundColor: background,
+            body: Center(
+              child: Text('Child not found'),
+            ),
+          );
+        }
+
+        final data = snapshot.data!.data() ?? {};
+
+        final String name = _getText(
+          data['name'],
+          fallback: 'Unknown',
+        );
+
+        final String image = _getText(
+          data['photoUrl'],
+          fallback: '',
+        );
+
+        final String nfcId = _getText(
+          data['nfcId'],
+          fallback: 'Not registered',
+        );
+
+        return StreamBuilder<DatabaseEvent>(
+          stream: FirebaseDatabaseService.database
+              .ref('childStatus/$childId')
+              .onValue,
+          builder: (context, rtdbSnapshot) {
+            if (rtdbSnapshot.hasError) {
+              return Scaffold(
+                backgroundColor: background,
+                body: Center(
+                  child: Text(
+                    'Error loading live status: ${rtdbSnapshot.error}',
+                  ),
                 ),
+              );
+            }
+
+            if (!rtdbSnapshot.hasData) {
+              return const Scaffold(
+                backgroundColor: background,
+                body: Center(
+                  child: CircularProgressIndicator(color: purple),
+                ),
+              );
+            }
+
+            final value = rtdbSnapshot.data!.snapshot.value;
+
+            final Map<String, dynamic> liveData =
+            value is Map
+                ? Map<String, dynamic>.from(value)
+                : {};
+
+            // True only after successful NFC card verification.
+            final bool identified = liveData['identified'] == true;
+
+            final bool deviceOnline =
+                liveData['deviceOnline'] == true;
+
+            final bool nfcConnected =
+                liveData['nfcConnected'] == true;
+
+            final bool wheelLock =
+                liveData['wheelLock'] == true;
+
+            final String status = _getText(
+              liveData['status'],
+            );
+
+            final String presence =
+            deviceOnline ? 'Online' : 'Offline';
+
+            final String identification =
+            identified ? 'Identified' : 'Not Identified';
+
+            final String nfcStatus =
+            nfcConnected ? 'Connected' : 'Not connected';
+
+            final String wheelLockStatus =
+            wheelLock ? 'Locked' : 'Unlocked';
+
+            return Scaffold(
+              backgroundColor: background,
+              body: SafeArea(
                 child: Column(
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            name,
-                            style: const TextStyle(
-                              fontSize: 19,
-                              fontWeight: FontWeight.bold,
+                    _buildHeader(context),
+
+                    Expanded(
+                      child: !identified
+                          ? _buildNotDetected()
+                          : SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 24,
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment:
+                              MainAxisAlignment.spaceAround,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    name,
+                                    style: const TextStyle(
+                                      fontSize: 19,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                CircleAvatar(
+                                  radius: 65,
+                                  backgroundColor:
+                                  const Color(0xFFE8C8F5),
+                                  child: ClipOval(
+                                    child: _buildChildImage(image),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ),
 
-                        CircleAvatar(
-                          radius: 65,
-                          backgroundColor: const Color(0xFFE8C8F5),
-                          child: ClipOval(
-                            child: _buildChildImage(),
-                          ),
-                        ),
-                      ],
-                    ),
+                            const SizedBox(height: 30),
 
-                    const SizedBox(height: 30),
+                            _buildInfoCard('Status', status),
+                            _buildInfoCard('Presence', presence),
+                            _buildInfoCard(
+                              'Identification',
+                              identification,
+                            ),
+                            _buildInfoCard(
+                              'NFC Reader',
+                              nfcStatus,
+                            ),
+                            _buildInfoCard(
+                              'Wheel lock',
+                              wheelLockStatus,
+                            ),
+                            _buildInfoCard('NFC ID', nfcId),
 
-                    _buildInfoCard('Status', status),
-                    _buildInfoCard('Presence', presence),
-                    _buildInfoCard('Identification', identification),
-                    _buildInfoCard('Wheel lock', wheelLock),
+                            const SizedBox(height: 10),
 
-                    _buildInfoCard(
-                      'NFC ID',
-                      nfcId.isEmpty || nfcId == 'null'
-                          ? 'Not connected'
-                          : nfcId,
-                    ),
-
-                    const SizedBox(height: 10),
-
-                    SizedBox(
-                      width: double.infinity,
-                      height: 40,
-                      child: ElevatedButton(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Live camera is not connected yet',
+                            SizedBox(
+                              width: double.infinity,
+                              height: 40,
+                              child: ElevatedButton(
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => LiveCamera(
+                                        childId: childId,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: purple,
+                                  foregroundColor: Colors.white,
+                                  elevation: 3,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius:
+                                    BorderRadius.circular(18),
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Live camera',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
                             ),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: purple,
-                          foregroundColor: Colors.white,
-                          elevation: 3,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                        ),
-                        child: const Text(
-                          'Live camera',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                          ),
+                          ],
                         ),
                       ),
                     ),
                   ],
                 ),
               ),
+              bottomNavigationBar: _buildBottomNavigation(context),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildNotDetected() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(25),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.nfc,
+              size: 75,
+              color: purple,
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Child Not Detected',
+              style: TextStyle(
+                fontSize: 21,
+                fontWeight: FontWeight.bold,
+                color: purple,
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Please scan the child NFC card to display the child data.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey,
+              ),
             ),
           ],
         ),
       ),
-
-      bottomNavigationBar: _buildBottomNavigation(context),
     );
   }
 
@@ -177,7 +334,6 @@ class ChildDetails extends StatelessWidget {
               color: Colors.white,
             ),
           ),
-
           const Expanded(
             child: Center(
               child: Text(
@@ -190,7 +346,6 @@ class ChildDetails extends StatelessWidget {
               ),
             ),
           ),
-
           const SizedBox(width: 48),
         ],
       ),
@@ -225,7 +380,6 @@ class ChildDetails extends StatelessWidget {
               fontWeight: FontWeight.bold,
             ),
           ),
-
           Flexible(
             child: Text(
               value,
@@ -270,9 +424,7 @@ class ChildDetails extends StatelessWidget {
                 Navigator.pushAndRemoveUntil(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => AdminHome(
-                      initialIndex: index,
-                    ),
+                    builder: (_) => AdminHome(initialIndex: index),
                   ),
                       (route) => false,
                 );

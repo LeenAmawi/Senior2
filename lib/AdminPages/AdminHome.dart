@@ -1,10 +1,14 @@
 
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart' hide Settings;
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
+
+import 'package:senior2/firebase_database_service.dart';
 
 import 'Children.dart';
 import 'Notifications.dart';
-import 'Settings.dart';
+import 'Settings.dart' as admin_settings;
 
 class AdminHome extends StatefulWidget {
   final int initialIndex;
@@ -37,6 +41,134 @@ class _AdminHomeState extends State<AdminHome> {
     selectedIndex = widget.initialIndex.clamp(0, 3);
   }
 
+  // =========================
+  // DELETE ALL NOTIFICATIONS
+  // =========================
+
+  Future<void> _deleteAllNotifications() async {
+    final admin = FirebaseAuth.instance.currentUser;
+
+    if (admin == null) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete Notifications'),
+          content: const Text(
+            'Are you sure you want to delete all notifications?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, false);
+              },
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, true);
+              },
+              child: const Text(
+                'Delete',
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm != true) return;
+
+    try {
+      final firestore = FirebaseFirestore.instance;
+
+      // 1. Get this admin's old notifications.
+      final oldNotifications = await firestore
+          .collection('notifications')
+          .where('adminId', isEqualTo: admin.uid)
+          .get();
+
+      // 2. Get all sensor events.
+      final sensorEvents = await firestore
+          .collection('sensorEvents')
+          .get();
+
+      // 3. Get states already hidden by this admin.
+      final existingStates = await firestore
+          .collection('adminNotificationStates')
+          .where('adminId', isEqualTo: admin.uid)
+          .get();
+
+      final hiddenEventIds = existingStates.docs
+          .map((doc) => doc.data()['eventId']?.toString())
+          .whereType<String>()
+          .toSet();
+
+      // 4. Delete only this admin's old notifications.
+      for (int i = 0; i < oldNotifications.docs.length; i += 450) {
+        final batch = firestore.batch();
+
+        final end = (i + 450 < oldNotifications.docs.length)
+            ? i + 450
+            : oldNotifications.docs.length;
+
+        for (int j = i; j < end; j++) {
+          batch.delete(oldNotifications.docs[j].reference);
+        }
+
+        await batch.commit();
+      }
+
+      // 5. Hide sensor events only for this admin.
+      final eventsToHide = sensorEvents.docs
+          .where((event) => !hiddenEventIds.contains(event.id))
+          .toList();
+
+      for (int i = 0; i < eventsToHide.length; i += 450) {
+        final batch = firestore.batch();
+
+        final end = (i + 450 < eventsToHide.length)
+            ? i + 450
+            : eventsToHide.length;
+
+        for (int j = i; j < end; j++) {
+          final event = eventsToHide[j];
+
+          final stateRef = firestore
+              .collection('adminNotificationStates')
+              .doc('${admin.uid}_${event.id}');
+
+          batch.set(stateRef, {
+            'adminId': admin.uid,
+            'eventId': event.id,
+            'hidden': true,
+            'hiddenAt': FieldValue.serverTimestamp(),
+          });
+        }
+
+        await batch.commit();
+      }
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('All notifications deleted successfully.'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not delete notifications: $e'),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -62,11 +194,15 @@ class _AdminHomeState extends State<AdminHome> {
       case 2:
         return const Notifications();
       case 3:
-        return const Settings();
+        return const admin_settings.Settings();
       default:
         return _buildHomeContent();
     }
   }
+
+  // =========================
+  // HEADER
+  // =========================
 
   Widget _buildHeader() {
     return Container(
@@ -120,12 +256,26 @@ class _AdminHomeState extends State<AdminHome> {
                 size: 21,
               ),
             )
+          else if (selectedIndex == 2)
+            IconButton(
+              onPressed: _deleteAllNotifications,
+              icon: const Icon(
+                Icons.delete_outline,
+                color: Colors.black,
+                size: 25,
+              ),
+              tooltip: 'Delete all notifications',
+            )
           else
             const SizedBox(width: 48),
         ],
       ),
     );
   }
+
+  // =========================
+  // HOME CONTENT
+  // =========================
 
   Widget _buildHomeContent() {
     return SingleChildScrollView(
@@ -134,8 +284,26 @@ class _AdminHomeState extends State<AdminHome> {
         children: [
           _buildLastNotification(),
           const SizedBox(height: 25),
+          _buildStatusCards(),
+          const SizedBox(height: 25),
+          _buildChildrenSection(),
+        ],
+      ),
+    );
+  }
 
-          Row(
+  // =========================
+  // STATUS CARDS - REALTIME DATABASE
+  // =========================
+
+  Widget _buildStatusCards() {
+    return StreamBuilder<DatabaseEvent>(
+      stream: FirebaseDatabaseService.database
+          .ref('childStatus')
+          .onValue,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Row(
             children: [
               Expanded(
                 child: _buildStatusCard(
@@ -153,14 +321,62 @@ class _AdminHomeState extends State<AdminHome> {
                 ),
               ),
             ],
-          ),
+          );
+        }
 
-          const SizedBox(height: 25),
-          _buildChildrenSection(),
-        ],
-      ),
+        if (!snapshot.hasData) {
+          return const Center(
+            child: CircularProgressIndicator(color: purple),
+          );
+        }
+
+        int alertsCount = 0;
+        int lowBatteryCount = 0;
+
+        final childStatuses = snapshot.data!.snapshot.value;
+
+        if (childStatuses is Map) {
+          for (final childStatus in childStatuses.values) {
+            if (childStatus is! Map) continue;
+
+            if (childStatus['obstacleDetected'] == true) {
+              alertsCount++;
+            }
+
+            final battery = childStatus['batteryLevel'];
+
+            if (battery is num && battery > 0 && battery <= 20) {
+              lowBatteryCount++;
+            }
+          }
+        }
+
+        return Row(
+          children: [
+            Expanded(
+              child: _buildStatusCard(
+                icon: Icons.warning_amber_rounded,
+                color: Colors.red,
+                title: 'Alerts: $alertsCount',
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildStatusCard(
+                icon: Icons.battery_2_bar,
+                color: Colors.red,
+                title: 'Low Battery: $lowBatteryCount',
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
+
+  // =========================
+  // CHILDREN SECTION - FIRESTORE
+  // =========================
 
   Widget _buildChildrenSection() {
     return Container(
@@ -205,16 +421,13 @@ class _AdminHomeState extends State<AdminHome> {
               ),
             ],
           ),
-
           const SizedBox(height: 8),
-
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: FirebaseFirestore.instance
                 .collection('children')
                 .snapshots(),
             builder: (context, snapshot) {
-              if (snapshot.connectionState ==
-                  ConnectionState.waiting) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Padding(
                   padding: EdgeInsets.all(20),
                   child: CircularProgressIndicator(color: purple),
@@ -272,9 +485,7 @@ class _AdminHomeState extends State<AdminHome> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 12),
-
                   Wrap(
                     spacing: 12,
                     runSpacing: 12,
@@ -295,51 +506,133 @@ class _AdminHomeState extends State<AdminHome> {
               );
             },
           ),
-
           const SizedBox(height: 10),
         ],
       ),
     );
   }
 
+  // =========================
+  // LAST NOTIFICATION - FIRESTORE
+  // =========================
+
   Widget _buildLastNotification() {
+    final admin = FirebaseAuth.instance.currentUser;
+
+    if (admin == null) {
+      return _lastNotificationCard('Please login first', '');
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('notifications')
+          .where('adminId', isEqualTo: admin.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return _lastNotificationCard(
+            'Could not load notifications',
+            '',
+          );
+        }
+
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return _lastNotificationCard(
+            'Notifications will appear here',
+            '',
+          );
+        }
+
+        final docs = snapshot.data!.docs.toList();
+
+        docs.sort((a, b) {
+          final timeA = a.data()['createdAt'];
+          final timeB = b.data()['createdAt'];
+
+          if (timeA is! Timestamp) return 1;
+          if (timeB is! Timestamp) return -1;
+
+          return timeB.compareTo(timeA);
+        });
+
+        final data = docs.first.data();
+
+        final message = data['message']?.toString() ?? '';
+        final createdAt = data['createdAt'];
+
+        String timeText = '';
+
+        if (createdAt is Timestamp) {
+          final dateTime = createdAt.toDate().toLocal();
+          final hour = dateTime.hour.toString().padLeft(2, '0');
+          final minute = dateTime.minute.toString().padLeft(2, '0');
+
+          timeText = '$hour:$minute';
+        }
+
+        return _lastNotificationCard(
+          message.isEmpty ? 'No message' : message,
+          timeText,
+        );
+      },
+    );
+  }
+
+  Widget _lastNotificationCard(String message, String time) {
     return Container(
       width: double.infinity,
       height: 140,
       padding: const EdgeInsets.all(16),
       decoration: _cardDecoration(),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(
+          const Icon(
             Icons.notifications_none,
             color: Color(0xFFB5C900),
             size: 38,
           ),
-          SizedBox(width: 12),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'Last notification',
                   style: TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                SizedBox(height: 7),
+                const SizedBox(height: 7),
                 Text(
-                  'Notifications will appear here',
-                  style: TextStyle(fontSize: 12),
+                  message,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12),
                 ),
               ],
             ),
           ),
+          if (time.isNotEmpty) ...[
+            const SizedBox(width: 10),
+            Text(
+              time,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Colors.grey,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
+
+  // =========================
+  // STATUS CARD
+  // =========================
 
   Widget _buildStatusCard({
     required IconData icon,
@@ -366,12 +659,22 @@ class _AdminHomeState extends State<AdminHome> {
     );
   }
 
+  // =========================
+  // CHILD CARD
+  // =========================
+
   Widget _buildChildCard({
     required String name,
     required String image,
     required String status,
   }) {
-    final bool isAwake = status.toLowerCase() == 'awake';
+    final lowerStatus = status.toLowerCase();
+
+    final Color statusColor = lowerStatus == 'awake'
+        ? Colors.green
+        : lowerStatus == 'sleeping' || lowerStatus == 'asleep'
+        ? Colors.orange
+        : Colors.grey;
 
     return Container(
       height: 140,
@@ -429,9 +732,7 @@ class _AdminHomeState extends State<AdminHome> {
               ),
             ),
           ),
-
           const SizedBox(height: 5),
-
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
             child: Text(
@@ -444,15 +745,13 @@ class _AdminHomeState extends State<AdminHome> {
               ),
             ),
           ),
-
           const SizedBox(height: 3),
-
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
                 Icons.circle,
-                color: isAwake ? Colors.green : Colors.orange,
+                color: statusColor,
                 size: 10,
               ),
               const SizedBox(width: 5),
@@ -473,6 +772,10 @@ class _AdminHomeState extends State<AdminHome> {
       ),
     );
   }
+
+  // =========================
+  // BOTTOM NAVIGATION
+  // =========================
 
   Widget _buildBottomNavigation() {
     final items = [
@@ -531,6 +834,10 @@ class _AdminHomeState extends State<AdminHome> {
       ),
     );
   }
+
+  // =========================
+  // CARD DECORATION
+  // =========================
 
   BoxDecoration _cardDecoration() {
     return BoxDecoration(
