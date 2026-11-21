@@ -7,6 +7,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:senior2/firebase_database_service.dart';
 
 import 'Children.dart';
+import 'ChildDetails.dart';
 import 'Notifications.dart';
 import 'Settings.dart' as admin_settings;
 
@@ -84,18 +85,15 @@ class _AdminHomeState extends State<AdminHome> {
     try {
       final firestore = FirebaseFirestore.instance;
 
-      // 1. Get this admin's old notifications.
       final oldNotifications = await firestore
           .collection('notifications')
           .where('adminId', isEqualTo: admin.uid)
           .get();
 
-      // 2. Get all sensor events.
       final sensorEvents = await firestore
           .collection('sensorEvents')
           .get();
 
-      // 3. Get states already hidden by this admin.
       final existingStates = await firestore
           .collection('adminNotificationStates')
           .where('adminId', isEqualTo: admin.uid)
@@ -106,7 +104,6 @@ class _AdminHomeState extends State<AdminHome> {
           .whereType<String>()
           .toSet();
 
-      // 4. Delete only this admin's old notifications.
       for (int i = 0; i < oldNotifications.docs.length; i += 450) {
         final batch = firestore.batch();
 
@@ -121,7 +118,6 @@ class _AdminHomeState extends State<AdminHome> {
         await batch.commit();
       }
 
-      // 5. Hide sensor events only for this admin.
       final eventsToHide = sensorEvents.docs
           .where((event) => !hiddenEventIds.contains(event.id))
           .toList();
@@ -294,6 +290,7 @@ class _AdminHomeState extends State<AdminHome> {
 
   // =========================
   // STATUS CARDS - REALTIME DATABASE
+  // COUNT IDENTIFIED CHILDREN ONLY
   // =========================
 
   Widget _buildStatusCards() {
@@ -339,6 +336,9 @@ class _AdminHomeState extends State<AdminHome> {
           for (final childStatus in childStatuses.values) {
             if (childStatus is! Map) continue;
 
+            // Ignore children who are not identified.
+            if (childStatus['identified'] != true) continue;
+
             if (childStatus['obstacleDetected'] == true) {
               alertsCount++;
             }
@@ -375,7 +375,8 @@ class _AdminHomeState extends State<AdminHome> {
   }
 
   // =========================
-  // CHILDREN SECTION - FIRESTORE
+  // CHILDREN SECTION
+  // SHOW ONLY 4 CHILDREN ON HOME
   // =========================
 
   Widget _buildChildrenSection() {
@@ -422,6 +423,7 @@ class _AdminHomeState extends State<AdminHome> {
             ],
           ),
           const SizedBox(height: 8),
+
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: FirebaseFirestore.instance
                 .collection('children')
@@ -472,6 +474,8 @@ class _AdminHomeState extends State<AdminHome> {
                 );
               }
 
+              final displayedChildren = children.take(4).toList();
+
               return Column(
                 children: [
                   Align(
@@ -485,19 +489,35 @@ class _AdminHomeState extends State<AdminHome> {
                       ),
                     ),
                   ),
+
                   const SizedBox(height: 12),
+
                   Wrap(
                     spacing: 12,
                     runSpacing: 12,
-                    children: children.map((doc) {
+                    children: displayedChildren.map((doc) {
                       final data = doc.data();
 
                       return SizedBox(
                         width: 125,
-                        child: _buildChildCard(
-                          name: data['name']?.toString() ?? 'Unknown',
-                          image: data['photoUrl']?.toString() ?? '',
-                          status: data['status']?.toString() ?? 'Unknown',
+                        child: GestureDetector(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ChildDetails(
+                                  childId: doc.id,
+                                ),
+                              ),
+                            );
+                          },
+                          child: _buildLiveChildCard(
+                            childId: doc.id,
+                            name: data['name']?.toString() ?? 'Unknown',
+                            image: data['photoUrl']?.toString() ?? '',
+                            firestoreStatus:
+                            data['status']?.toString() ?? 'Unknown',
+                          ),
                         ),
                       );
                     }).toList(),
@@ -506,9 +526,49 @@ class _AdminHomeState extends State<AdminHome> {
               );
             },
           ),
+
           const SizedBox(height: 10),
         ],
       ),
+    );
+  }
+
+  // =========================
+  // CHILD LIVE STATUS - REALTIME DATABASE
+  // SHOW STATUS ONLY WHEN IDENTIFIED
+  // =========================
+
+  Widget _buildLiveChildCard({
+    required String childId,
+    required String name,
+    required String image,
+    required String firestoreStatus,
+  }) {
+    return StreamBuilder<DatabaseEvent>(
+      stream: FirebaseDatabaseService.database
+          .ref('childStatus/$childId')
+          .onValue,
+      builder: (context, snapshot) {
+        String status = '-';
+
+        if (snapshot.hasData && !snapshot.hasError) {
+          final value = snapshot.data!.snapshot.value;
+
+          if (value is Map) {
+            final identified = value['identified'] == true;
+
+            if (identified) {
+              status = value['status']?.toString() ?? '-';
+            }
+          }
+        }
+
+        return _buildChildCard(
+          name: name,
+          image: image,
+          status: status,
+        );
+      },
     );
   }
 
@@ -670,7 +730,9 @@ class _AdminHomeState extends State<AdminHome> {
   }) {
     final lowerStatus = status.toLowerCase();
 
-    final Color statusColor = lowerStatus == 'awake'
+    final Color statusColor = status == '-'
+        ? Colors.grey
+        : lowerStatus == 'awake'
         ? Colors.green
         : lowerStatus == 'sleeping' || lowerStatus == 'asleep'
         ? Colors.orange

@@ -69,7 +69,6 @@ class _SignupPageState extends State<Signup> {
       final lastName = _lastName.text.trim();
       final email = _email.text.trim();
 
-      // 1. Create Firebase Authentication account
       final credential =
       await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: email,
@@ -83,10 +82,8 @@ class _SignupPageState extends State<Signup> {
       }
 
       newUser = user;
-
       final uid = user.uid;
 
-      // 2. Check Parent connection code first
       final parentCodeRef =
       db.collection('connectionCodes').doc(codeId);
 
@@ -100,7 +97,6 @@ class _SignupPageState extends State<Signup> {
         }
       }
 
-      // 3. If it is a valid Parent code
       if (parentCodeSnapshot != null &&
           parentCodeSnapshot.exists) {
         final codeData = parentCodeSnapshot.data()!;
@@ -120,7 +116,6 @@ class _SignupPageState extends State<Signup> {
         final parentRef = db.collection('parents').doc(uid);
         final childRef = db.collection('children').doc(childId);
 
-        // Link Parent, Child, and code atomically
         final batch = db.batch();
 
         batch.set(parentRef, {
@@ -129,6 +124,7 @@ class _SignupPageState extends State<Signup> {
           'email': email,
           'createdAt': FieldValue.serverTimestamp(),
           'childIds': [childId],
+          'connectionCodeId': codeId,
         });
 
         batch.update(childRef, {
@@ -141,12 +137,8 @@ class _SignupPageState extends State<Signup> {
         });
 
         await batch.commit();
-
         batchCommitted = true;
-      }
-
-      // 4. Otherwise, check Admin invitation code
-      else {
+      } else {
         final adminCodeRef =
         db.collection('adminCodes').doc(codeId);
 
@@ -185,11 +177,9 @@ class _SignupPageState extends State<Signup> {
         });
 
         await batch.commit();
-
         batchCommitted = true;
       }
 
-      // 5. Update profile and send verification email
       await user.updateDisplayName('$firstName $lastName');
       await user.sendEmailVerification();
 
@@ -201,7 +191,6 @@ class _SignupPageState extends State<Signup> {
           builder: (_) => const EmailVerification(),
         ),
       );
-
     } on FirebaseAuthException catch (e) {
       if (newUser != null && !batchCommitted) {
         try {
@@ -233,7 +222,6 @@ class _SignupPageState extends State<Signup> {
       }
 
       showAuthError(context, message);
-
     } on FirebaseException catch (e) {
       debugPrint('FIRESTORE ERROR CODE: ${e.code}');
       debugPrint('FIRESTORE ERROR MESSAGE: ${e.message}');
@@ -263,7 +251,6 @@ class _SignupPageState extends State<Signup> {
           'Could not complete registration. Please try again.',
         );
       }
-
     } catch (e) {
       debugPrint('SIGNUP ERROR: $e');
 
@@ -289,7 +276,6 @@ class _SignupPageState extends State<Signup> {
           'Something went wrong. Please try again.',
         );
       }
-
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -315,18 +301,14 @@ class _SignupPageState extends State<Signup> {
               validator: (value) =>
                   validateRequired(value, 'First name'),
             ),
-
             const SizedBox(height: 12),
-
             AuthField(
               hint: 'Last Name',
               controller: _lastName,
               validator: (value) =>
                   validateRequired(value, 'Last name'),
             ),
-
             const SizedBox(height: 12),
-
             AuthField(
               hint: 'Email address',
               icon: Icons.mail_outline,
@@ -334,9 +316,7 @@ class _SignupPageState extends State<Signup> {
               keyboardType: TextInputType.emailAddress,
               validator: validateEmail,
             ),
-
             const SizedBox(height: 12),
-
             AuthField(
               hint: 'Connection Code',
               icon: Icons.vpn_key_outlined,
@@ -348,9 +328,7 @@ class _SignupPageState extends State<Signup> {
                 return null;
               },
             ),
-
             const SizedBox(height: 12),
-
             AuthField(
               hint: 'Password',
               icon: Icons.lock_outline,
@@ -370,9 +348,7 @@ class _SignupPageState extends State<Signup> {
               ),
               validator: validatePassword,
             ),
-
             const SizedBox(height: 12),
-
             AuthField(
               hint: 'Confirm password',
               icon: Icons.lock_outline,
@@ -381,8 +357,7 @@ class _SignupPageState extends State<Signup> {
               suffix: IconButton(
                 onPressed: () {
                   setState(() {
-                    _hideConfirmPassword =
-                    !_hideConfirmPassword;
+                    _hideConfirmPassword = !_hideConfirmPassword;
                   });
                 },
                 icon: Icon(
@@ -403,18 +378,14 @@ class _SignupPageState extends State<Signup> {
                 return null;
               },
             ),
-
             const SizedBox(height: 18),
-
             AuthButton(
               text: _isLoading
                   ? 'Creating account...'
                   : 'Sign up',
               onPressed: _isLoading ? null : _signup,
             ),
-
             const SizedBox(height: 14),
-
             Wrap(
               alignment: WrapAlignment.center,
               children: [

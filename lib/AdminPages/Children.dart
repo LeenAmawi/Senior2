@@ -78,8 +78,6 @@ class Children extends StatelessWidget {
 
               final name = child['name']?.toString() ?? 'Unknown';
               final image = child['photoUrl']?.toString() ?? '';
-              final firestoreStatus =
-                  child['status']?.toString() ?? 'Unknown';
 
               return GestureDetector(
                 onTap: () {
@@ -96,7 +94,6 @@ class Children extends StatelessWidget {
                   childId: doc.id,
                   name: name,
                   image: image,
-                  firestoreStatus: firestoreStatus,
                 ),
               );
             },
@@ -106,25 +103,36 @@ class Children extends StatelessWidget {
     );
   }
 
-  // Read the child's live status from Realtime Database.
+  // Read live status from Realtime Database.
   Widget _buildLiveChildCard({
     required String childId,
     required String name,
     required String image,
-    required String firestoreStatus,
   }) {
     return StreamBuilder<DatabaseEvent>(
       stream: FirebaseDatabaseService.database
           .ref('childStatus/$childId')
           .onValue,
       builder: (context, snapshot) {
-        String status = firestoreStatus;
+        String status = '-';
 
         if (snapshot.hasData) {
           final value = snapshot.data!.snapshot.value;
 
           if (value is Map) {
-            status = value['status']?.toString() ?? 'Unknown';
+            final liveData = Map<String, dynamic>.from(value);
+
+            final bool identified =
+                liveData['identified'] == true;
+
+            if (identified) {
+              final liveStatus = liveData['status'];
+
+              status = liveStatus == null ||
+                  liveStatus.toString().trim().isEmpty
+                  ? '-'
+                  : liveStatus.toString();
+            }
           }
         }
 

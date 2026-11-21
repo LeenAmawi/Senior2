@@ -2,6 +2,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
 
 import '../widgets/auth_widgets.dart';
 import '../ParentScreens/ParentDashboard.dart';
@@ -17,15 +19,19 @@ class Login extends StatefulWidget {
 
 class _LoginPageState extends State<Login> {
   final _formKey = GlobalKey<FormState>();
-
   final _email = TextEditingController();
   final _password = TextEditingController();
 
   bool _hidePassword = true;
   bool _isLoading = false;
-
-  // Selected account type
   String _selectedRole = 'Parent';
+
+  final FirebaseDatabase _realtimeDatabase =
+  FirebaseDatabase.instanceFor(
+    app: Firebase.app(),
+    databaseURL:
+    'https://kidsentinel-dd697-default-rtdb.firebaseio.com',
+  );
 
   @override
   void dispose() {
@@ -33,6 +39,129 @@ class _LoginPageState extends State<Login> {
     _password.dispose();
     super.dispose();
   }
+
+  Future<void> _signOutQuietly() async {
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (e) {
+      debugPrint('SIGN OUT ERROR: $e');
+    }
+  }
+
+  // =========================
+  // PARENT ACCESS
+  // =========================
+
+  Future<void> _completeParentAccess({
+    required String uid,
+    required Map<String, dynamic> parentData,
+  }) async {
+    final childIds = parentData['childIds'];
+
+    if (childIds is! List || childIds.length != 1) {
+      throw Exception(
+        'Parent account must be linked to exactly one child.',
+      );
+    }
+
+    final childId = childIds.first;
+    final codeId = parentData['connectionCodeId'];
+
+    if (childId is! String ||
+        childId.isEmpty ||
+        codeId is! String ||
+        codeId.isEmpty) {
+      throw Exception(
+        'Parent connection information is missing. '
+            'Please check the parent account connectionCodeId.',
+      );
+    }
+
+    // Claim the parent invitation.
+    await _realtimeDatabase
+        .ref('parentInvites/$codeId/claimedBy')
+        .set(uid);
+
+    // Link the parent account to the child's live status.
+    await _realtimeDatabase
+        .ref('childStatus/$childId/parentLink')
+        .set({
+      'uid': uid,
+      'code': codeId,
+    });
+  }
+
+  // =========================
+  // ADMIN ACCESS
+  // =========================
+
+  Future<void> _completeAdminAccess({
+    required String uid,
+    required Map<String, dynamic> adminData,
+  }) async {
+    final codeId = adminData['inviteCodeId'];
+
+    if (codeId is! String || codeId.isEmpty) {
+      throw Exception(
+        'Admin invitation information is missing.',
+      );
+    }
+
+    // Verify the admin invitation in Firestore.
+    final inviteDoc = await FirebaseFirestore.instance
+        .collection('adminCodes')
+        .doc(codeId)
+        .get();
+
+    if (!inviteDoc.exists) {
+      throw Exception(
+        'Admin invitation does not exist.',
+      );
+    }
+
+    final inviteData = inviteDoc.data();
+
+    if (inviteData == null) {
+      throw Exception(
+        'Admin invitation information is missing.',
+      );
+    }
+
+    final expiresAt = inviteData['expiresAt'];
+    final usedBy = inviteData['usedBy'];
+    final isUsed = inviteData['isUsed'];
+
+    // Make sure the invitation belongs to this admin.
+    if (isUsed != true || usedBy != uid) {
+      throw Exception(
+        'This invitation does not belong to this admin account.',
+      );
+    }
+
+    // Check invitation expiration.
+    if (expiresAt is! Timestamp ||
+        !expiresAt.toDate().isAfter(DateTime.now())) {
+      throw Exception(
+        'Admin invitation has expired.',
+      );
+    }
+
+    // Verify that admin access is already activated.
+    final accessSnapshot =
+    await _realtimeDatabase.ref('_access/$uid').get();
+
+    if (accessSnapshot.value != 'admin') {
+      throw Exception(
+        'Admin permissions are not activated in Realtime Database.',
+      );
+    }
+
+    debugPrint('ADMIN ACCESS VERIFIED SUCCESSFULLY');
+  }
+
+  // =========================
+  // LOGIN
+  // =========================
 
   Future<void> _login() async {
     FocusScope.of(context).unfocus();
@@ -42,7 +171,6 @@ class _LoginPageState extends State<Login> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. Firebase Authentication
       final credential =
       await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _email.text.trim(),
@@ -52,16 +180,15 @@ class _LoginPageState extends State<Login> {
       final user = credential.user;
 
       if (user == null) {
-        throw Exception('User not found');
+        throw Exception('User not found.');
       }
 
-      // 2. Check email verification
       await user.reload();
 
       final updatedUser = FirebaseAuth.instance.currentUser;
 
       if (updatedUser == null || !updatedUser.emailVerified) {
-        await FirebaseAuth.instance.signOut();
+        await _signOutQuietly();
 
         if (!mounted) return;
 
@@ -72,17 +199,16 @@ class _LoginPageState extends State<Login> {
         return;
       }
 
+      final uid = updatedUser.uid;
       final db = FirebaseFirestore.instance;
 
-      // 3. Check selected account type
       if (_selectedRole == 'Parent') {
-        final parentDoc = await db
-            .collection('parents')
-            .doc(user.uid)
-            .get();
+        // Check whether the account exists as a parent.
+        final parentDoc =
+        await db.collection('parents').doc(uid).get();
 
         if (!parentDoc.exists) {
-          await FirebaseAuth.instance.signOut();
+          await _signOutQuietly();
 
           if (!mounted) return;
 
@@ -93,6 +219,18 @@ class _LoginPageState extends State<Login> {
           return;
         }
 
+        final parentData = parentDoc.data();
+
+        if (parentData == null) {
+          throw Exception('Parent information is missing.');
+        }
+
+        // Set up the parent's Realtime Database access.
+        await _completeParentAccess(
+          uid: uid,
+          parentData: parentData,
+        );
+
         if (!mounted) return;
 
         Navigator.pushReplacement(
@@ -102,13 +240,12 @@ class _LoginPageState extends State<Login> {
           ),
         );
       } else if (_selectedRole == 'Admin') {
-        final adminDoc = await db
-            .collection('admins')
-            .doc(user.uid)
-            .get();
+        // Check whether the account exists as an admin.
+        final adminDoc =
+        await db.collection('admins').doc(uid).get();
 
         if (!adminDoc.exists) {
-          await FirebaseAuth.instance.signOut();
+          await _signOutQuietly();
 
           if (!mounted) return;
 
@@ -118,6 +255,18 @@ class _LoginPageState extends State<Login> {
           );
           return;
         }
+
+        final adminData = adminDoc.data();
+
+        if (adminData == null) {
+          throw Exception('Admin information is missing.');
+        }
+
+        // Verify the admin's access.
+        await _completeAdminAccess(
+          uid: uid,
+          adminData: adminData,
+        );
 
         if (!mounted) return;
 
@@ -159,32 +308,37 @@ class _LoginPageState extends State<Login> {
           break;
 
         default:
-          message = e.message ?? 'Could not log in. Please try again.';
+          message =
+              e.message ?? 'Could not log in. Please try again.';
       }
 
       showAuthError(context, message);
-
     } on FirebaseException catch (e) {
-      debugPrint('LOGIN FIRESTORE ERROR: ${e.code}');
-      debugPrint('LOGIN FIRESTORE MESSAGE: ${e.message}');
+      debugPrint('LOGIN FIREBASE ERROR: ${e.code}');
+      debugPrint('LOGIN FIREBASE MESSAGE: ${e.message}');
+
+      // Do not leave the user signed in if access setup failed.
+      await _signOutQuietly();
 
       if (!mounted) return;
 
       showAuthError(
         context,
-        'Could not verify account. Please try again.',
+        'Could not complete account access. '
+            'Please check your connection and try again.',
       );
-
     } catch (e) {
       debugPrint('LOGIN ERROR: $e');
 
+      // Sign out if the account was authenticated but setup failed.
+      await _signOutQuietly();
+
       if (!mounted) return;
 
       showAuthError(
         context,
-        'Something went wrong. Please try again.',
+        e.toString().replaceFirst('Exception: ', ''),
       );
-
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -192,7 +346,10 @@ class _LoginPageState extends State<Login> {
     }
   }
 
-  // Forgot Password
+  // =========================
+  // FORGOT PASSWORD
+  // =========================
+
   Future<void> _forgotPassword() async {
     final emailController = TextEditingController(
       text: _email.text.trim(),
@@ -249,7 +406,6 @@ class _LoginPageState extends State<Login> {
           ),
         ),
       );
-
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
 
@@ -258,7 +414,6 @@ class _LoginPageState extends State<Login> {
           : 'Could not send the reset link. Please try again.';
 
       showAuthError(context, message);
-
     } catch (_) {
       if (!mounted) return;
 
@@ -269,7 +424,10 @@ class _LoginPageState extends State<Login> {
     }
   }
 
-  // Parent and Admin selection buttons
+  // =========================
+  // ROLE BUTTON
+  // =========================
+
   Widget _roleButton({
     required String title,
     required IconData icon,
@@ -330,12 +488,17 @@ class _LoginPageState extends State<Login> {
     );
   }
 
+  // =========================
+  // BUILD
+  // =========================
+
   @override
   Widget build(BuildContext context) {
     return AuthContainer(
       header: const AuthHeader(
         title: 'Login',
-        subtitle: 'Hi there, welcome back, please login to your account',
+        subtitle:
+        'Hi there, welcome back, please login to your account',
         imagePath: 'assets/images/auth.png',
       ),
       child: Form(
@@ -349,9 +512,7 @@ class _LoginPageState extends State<Login> {
               keyboardType: TextInputType.emailAddress,
               validator: validateEmail,
             ),
-
             const SizedBox(height: 12),
-
             AuthField(
               hint: 'Password',
               icon: Icons.lock_outline,
@@ -376,7 +537,6 @@ class _LoginPageState extends State<Login> {
                 return null;
               },
             ),
-
             Align(
               alignment: Alignment.centerLeft,
               child: TextButton(
@@ -396,16 +556,12 @@ class _LoginPageState extends State<Login> {
                 ),
               ),
             ),
-
             const SizedBox(height: 18),
-
             AuthButton(
               text: _isLoading ? 'Logging in...' : 'Login',
               onPressed: _isLoading ? null : _login,
             ),
-
             const SizedBox(height: 14),
-
             const Text(
               'Login as',
               style: TextStyle(
@@ -414,9 +570,7 @@ class _LoginPageState extends State<Login> {
                 fontWeight: FontWeight.w500,
               ),
             ),
-
             const SizedBox(height: 14),
-
             Row(
               children: [
                 _roleButton(
@@ -429,9 +583,7 @@ class _LoginPageState extends State<Login> {
                 ),
               ],
             ),
-
             const SizedBox(height: 16),
-
             Wrap(
               alignment: WrapAlignment.center,
               children: [
@@ -443,7 +595,6 @@ class _LoginPageState extends State<Login> {
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-
                 GestureDetector(
                   onTap: () {
                     Navigator.pushReplacement(

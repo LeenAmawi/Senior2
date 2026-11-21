@@ -61,6 +61,7 @@ class ParentDashboard extends StatelessWidget {
 
     if (user == null) {
       return const Scaffold(
+        backgroundColor: background,
         body: Center(
           child: Text('Please log in again.'),
         ),
@@ -79,8 +80,11 @@ class ParentDashboard extends StatelessWidget {
         if (parentSnapshot.connectionState ==
             ConnectionState.waiting) {
           return const Scaffold(
+            backgroundColor: background,
             body: Center(
-              child: CircularProgressIndicator(),
+              child: CircularProgressIndicator(
+                color: purple,
+              ),
             ),
           );
         }
@@ -93,6 +97,7 @@ class ParentDashboard extends StatelessWidget {
           );
 
           return const Scaffold(
+            backgroundColor: background,
             body: Center(
               child: Text('Could not load parent information.'),
             ),
@@ -110,6 +115,7 @@ class ParentDashboard extends StatelessWidget {
 
         if (childIds.isEmpty) {
           return const Scaffold(
+            backgroundColor: background,
             body: Center(
               child: Text('No child linked to this account.'),
             ),
@@ -129,8 +135,11 @@ class ParentDashboard extends StatelessWidget {
             if (childSnapshot.connectionState ==
                 ConnectionState.waiting) {
               return const Scaffold(
+                backgroundColor: background,
                 body: Center(
-                  child: CircularProgressIndicator(),
+                  child: CircularProgressIndicator(
+                    color: purple,
+                  ),
                 ),
               );
             }
@@ -143,6 +152,7 @@ class ParentDashboard extends StatelessWidget {
               );
 
               return const Scaffold(
+                backgroundColor: background,
                 body: Center(
                   child: Text('Could not load child information.'),
                 ),
@@ -175,8 +185,11 @@ class ParentDashboard extends StatelessWidget {
                 if (statusSnapshot.connectionState ==
                     ConnectionState.waiting) {
                   return const Scaffold(
+                    backgroundColor: background,
                     body: Center(
-                      child: CircularProgressIndicator(),
+                      child: CircularProgressIndicator(
+                        color: purple,
+                      ),
                     ),
                   );
                 }
@@ -199,15 +212,19 @@ class ParentDashboard extends StatelessWidget {
                     ? Map<String, dynamic>.from(rawData)
                     : {};
 
-                // Check NFC connection first
-                final nfcConnected =
-                    liveData['nfcConnected'] == true;
+                // Check child identification
+                final bool identified =
+                    liveData['identified'] == true;
 
-                // Show child status only when NFC is connected
-                final status = nfcConnected
-                    ? (liveData['status']?.toString() ?? 'Unknown')
-                    : 'Unknown';
+                // Read live values only when child is identified
+                final bool nfcConnected =
+                    identified && liveData['nfcConnected'] == true;
 
+                final String status = identified
+                    ? (liveData['status']?.toString() ?? '-')
+                    : '-';
+
+                debugPrint('IDENTIFIED: $identified');
                 debugPrint('CHILD STATUS: $status');
                 debugPrint('NFC CONNECTED: $nfcConnected');
                 debugPrint('======================================');
@@ -220,6 +237,7 @@ class ParentDashboard extends StatelessWidget {
                   status: status,
                   photoUrl: photoUrl.toString(),
                   nfcConnected: nfcConnected,
+                  identified: identified,
                   childId: childId,
                 );
               },
@@ -238,11 +256,16 @@ class ParentDashboard extends StatelessWidget {
     required String status,
     required String photoUrl,
     required bool nfcConnected,
+    required bool identified,
     required String childId,
   }) {
     final isSleeping = status.toLowerCase().contains('sleep');
 
-    final statusColor = isSleeping ? purple : green;
+    final statusColor = !identified
+        ? Colors.grey
+        : isSleeping
+        ? purple
+        : green;
 
     return Scaffold(
       backgroundColor: background,
@@ -390,7 +413,16 @@ class ParentDashboard extends StatelessWidget {
                       ),
                     ),
 
-                    getStatusIcon(status),
+                    if (identified)
+                      getStatusIcon(status)
+                    else
+                      const Text(
+                        '-',
+                        style: TextStyle(
+                          fontSize: 30,
+                          color: Colors.grey,
+                        ),
+                      ),
 
                     const SizedBox(width: 20),
                   ],
@@ -418,13 +450,17 @@ class ParentDashboard extends StatelessWidget {
                           ),
                           const SizedBox(height: 10),
                           Text(
-                            nfcConnected
+                            identified
+                                ? (nfcConnected
                                 ? 'Connected'
-                                : 'Not Connected',
+                                : 'Not Connected')
+                                : '-',
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w500,
-                              color: nfcConnected
+                              color: !identified
+                                  ? Colors.grey
+                                  : nfcConnected
                                   ? green
                                   : Colors.red,
                             ),
@@ -448,10 +484,16 @@ class ParentDashboard extends StatelessWidget {
                         ],
                       ),
                       child: Icon(
-                        nfcConnected
+                        !identified
+                            ? Icons.remove
+                            : nfcConnected
                             ? Icons.check
                             : Icons.close,
-                        color: nfcConnected ? green : Colors.red,
+                        color: !identified
+                            ? Colors.grey
+                            : nfcConnected
+                            ? green
+                            : Colors.red,
                         size: 38,
                       ),
                     ),

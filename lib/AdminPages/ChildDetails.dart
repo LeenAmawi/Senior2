@@ -152,30 +152,19 @@ class ChildDetails extends StatelessWidget {
             // True only after successful NFC card verification.
             final bool identified = liveData['identified'] == true;
 
-            final bool deviceOnline =
-                liveData['deviceOnline'] == true;
-
-            final bool nfcConnected =
-                liveData['nfcConnected'] == true;
-
-            final bool wheelLock =
-                liveData['wheelLock'] == true;
-
-            final String status = _getText(
-              liveData['status'],
-            );
-
-            final String presence =
-            deviceOnline ? 'Online' : 'Offline';
+            // Show live values only when the child is identified.
+            final String status = identified
+                ? _getText(liveData['status'], fallback: '-')
+                : '-';
 
             final String identification =
-            identified ? 'Identified' : 'Not Identified';
+            identified ? 'Identified' : '-';
 
-            final String nfcStatus =
-            nfcConnected ? 'Connected' : 'Not connected';
-
-            final String wheelLockStatus =
-            wheelLock ? 'Locked' : 'Unlocked';
+            final String wheelLockStatus = !identified
+                ? '-'
+                : liveData['wheelLock'] == true
+                ? 'Locked'
+                : 'Unlocked';
 
             return Scaffold(
               backgroundColor: background,
@@ -185,9 +174,7 @@ class ChildDetails extends StatelessWidget {
                     _buildHeader(context),
 
                     Expanded(
-                      child: !identified
-                          ? _buildNotDetected()
-                          : SingleChildScrollView(
+                      child: SingleChildScrollView(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 18,
                           vertical: 24,
@@ -220,24 +207,25 @@ class ChildDetails extends StatelessWidget {
 
                             const SizedBox(height: 30),
 
+                            // Only the requested information is displayed.
                             _buildInfoCard('Status', status),
-                            _buildInfoCard('Presence', presence),
+
                             _buildInfoCard(
                               'Identification',
                               identification,
                             ),
-                            _buildInfoCard(
-                              'NFC Reader',
-                              nfcStatus,
-                            ),
+
                             _buildInfoCard(
                               'Wheel lock',
                               wheelLockStatus,
                             ),
+
+                            // NFC ID is read from Firestore.
                             _buildInfoCard('NFC ID', nfcId),
 
                             const SizedBox(height: 10),
 
+                            // Always visible, even when not identified.
                             SizedBox(
                               width: double.infinity,
                               height: 40,
@@ -281,42 +269,6 @@ class ChildDetails extends StatelessWidget {
           },
         );
       },
-    );
-  }
-
-  Widget _buildNotDetected() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(25),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.nfc,
-              size: 75,
-              color: purple,
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Child Not Detected',
-              style: TextStyle(
-                fontSize: 21,
-                fontWeight: FontWeight.bold,
-                color: purple,
-              ),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              'Please scan the child NFC card to display the child data.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 

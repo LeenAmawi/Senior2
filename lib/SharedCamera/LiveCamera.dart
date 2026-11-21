@@ -14,6 +14,9 @@ class LiveCamera extends StatelessWidget {
     this.kindergartenId = '8Q7bnU6zLpENqM4XseTO',
   });
 
+  static const Color purple = Color(0xFFAA6BD5);
+  static const Color background = Color(0xFFF3F2F8);
+
   @override
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -23,21 +26,27 @@ class LiveCamera extends StatelessWidget {
     debugPrint('CHILD ID: $childId');
     debugPrint('=================================');
 
-    // Correct Firestore path:
-    // children/{childId}
     final firestoreStream = FirebaseFirestore.instance
         .collection('children')
         .doc(childId)
         .snapshots();
 
-    // Realtime Database path remains unchanged.
     final rtdbStream = FirebaseDatabase.instance
         .ref('childStatus/$childId')
         .onValue;
 
     return Scaffold(
+      backgroundColor: background,
       appBar: AppBar(
-        title: const Text('Live Camera'),
+        backgroundColor: purple,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        title: const Text(
+          'Live Camera',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
       body: StreamBuilder<DatabaseEvent>(
         stream: rtdbStream,
@@ -50,15 +59,42 @@ class LiveCamera extends StatelessWidget {
             );
           }
 
+          if (rtdbSnapshot.connectionState ==
+              ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(
+                color: purple,
+              ),
+            );
+          }
+
           final rawData = rtdbSnapshot.data?.snapshot.value;
 
           final Map<dynamic, dynamic> statusData =
           rawData is Map ? rawData : {};
 
+          // Check if the child is identified
+          final bool identified =
+              statusData['identified'] == true;
+
+          if (!identified) {
+            return const Center(
+              child: Text(
+                'Child is not identified',
+                style: TextStyle(
+                  fontSize: 18,
+                  color: Colors.black54,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            );
+          }
+
           final bool cameraOnline =
               statusData['cameraOnline'] == true;
 
-          return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          return StreamBuilder<
+              DocumentSnapshot<Map<String, dynamic>>>(
             stream: firestoreStream,
             builder: (context, firestoreSnapshot) {
               if (firestoreSnapshot.hasError) {
@@ -67,14 +103,18 @@ class LiveCamera extends StatelessWidget {
                 );
 
                 return const Center(
-                  child: Text('Unable to load child information'),
+                  child: Text(
+                    'Unable to load child information',
+                  ),
                 );
               }
 
               if (firestoreSnapshot.connectionState ==
                   ConnectionState.waiting) {
                 return const Center(
-                  child: CircularProgressIndicator(),
+                  child: CircularProgressIndicator(
+                    color: purple,
+                  ),
                 );
               }
 
@@ -83,14 +123,19 @@ class LiveCamera extends StatelessWidget {
                 debugPrint('CHILD DOCUMENT NOT FOUND');
 
                 return const Center(
-                  child: Text('Child information not found'),
+                  child: Text(
+                    'Child information not found',
+                  ),
                 );
               }
 
               final childData =
                   firestoreSnapshot.data!.data() ?? {};
 
-              debugPrint('FIRESTORE PATH: ${firestoreSnapshot.data!.reference.path}');
+              debugPrint(
+                'FIRESTORE PATH: '
+                    '${firestoreSnapshot.data!.reference.path}',
+              );
               debugPrint('CHILD DATA: $childData');
 
               final String liveStreamUrl =
@@ -103,7 +148,10 @@ class LiveCamera extends StatelessWidget {
                 return const Center(
                   child: Text(
                     'Camera is disabled',
-                    style: TextStyle(fontSize: 18),
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.black54,
+                    ),
                   ),
                 );
               }
@@ -112,17 +160,26 @@ class LiveCamera extends StatelessWidget {
                 return const Center(
                   child: Text(
                     'Camera is offline',
-                    style: TextStyle(fontSize: 18),
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.black54,
+                    ),
                   ),
                 );
               }
 
               if (liveStreamUrl.isEmpty) {
                 return const Center(
-                  child: Text(
-                    'Camera is online, but no stream URL is available',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 16),
+                  child: Padding(
+                    padding: EdgeInsets.all(20),
+                    child: Text(
+                      'Camera is online, but no stream URL is available',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.black54,
+                      ),
+                    ),
                   ),
                 );
               }
@@ -136,7 +193,7 @@ class LiveCamera extends StatelessWidget {
                       const Icon(
                         Icons.videocam,
                         size: 70,
-                        color: Colors.green,
+                        color: purple,
                       ),
                       const SizedBox(height: 16),
                       const Text(
@@ -144,15 +201,31 @@ class LiveCamera extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
+                          color: purple,
                         ),
                       ),
                       const SizedBox(height: 12),
-                      const Text('Stream URL:'),
-                      SelectableText(liveStreamUrl),
+                      const Text(
+                        'Stream URL:',
+                        style: TextStyle(
+                          color: Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      SelectableText(
+                        liveStreamUrl,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.black87,
+                        ),
+                      ),
                       const SizedBox(height: 16),
                       const Text(
                         'Video playback is not configured yet.',
                         textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.black54,
+                        ),
                       ),
                     ],
                   ),
